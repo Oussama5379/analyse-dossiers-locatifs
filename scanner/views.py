@@ -1,21 +1,36 @@
 import fitz  # PyMuPDF
-import json
+import logging
 import os
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError, RateLimitError
+from pydantic import BaseModel, Field, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
 load_dotenv()
 
-# Initialiser le client (On utilise le SDK OpenAI branché sur l'API gratuite de Groq)
+logger = logging.getLogger(__name__)
+
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+
 client = OpenAI(
     api_key=os.environ.get("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
+    base_url="https://api.groq.com/openai/v1",
+    timeout=30,
+    max_retries=1,
 )
+
+
+class AnalyseLLM(BaseModel):
+    """Schéma attendu de la réponse du LLM."""
+    hors_sujet: bool = False
+    candidat: str | None = None
+    revenus_mensuels: int | None = Field(default=None, ge=0)
+    documents_trouves: list[str] = []
+    documents_manquants: list[str] = []
+
 
 class AnalyzeDossierView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -29,7 +44,7 @@ class AnalyzeDossierView(APIView):
                 {"error": "Le loyer et au moins un document (PDF) sont requis."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
+
         try:
             loyer_vise = float(loyer_vise_str)
         except ValueError:
@@ -61,22 +76,22 @@ class AnalyzeDossierView(APIView):
                         {"error": f"Le document '{document.name}' est illisible (scan sans OCR)."},
                         status=status.HTTP_422_UNPROCESSABLE_ENTITY
                     )
-                
+
                 dossier_text += f"\n--- Document : {document.name} ---\n{texte_extrait}\n"
 
-            # ÉTAPE 2 : Appel au LLM (Groq) et Prompting
+            # ÉTAPE 2 : Appel au LLM
             prompt = f"""
             Tu es un expert immobilier. Analyse le texte extrait de ces documents locatifs :
-            
+
             {dossier_text}
-            
+
             Ta tâche :
             1. Vérifie si les documents sont pertinents (bulletin de salaire, pièce d'identité, contrat, etc.). Si le contenu est totalement hors sujet (ex: recette de cuisine, article de presse), mets "hors_sujet" à true.
             2. Extrais le nom complet du candidat.
             3. Extrais le revenu mensuel net (uniquement des nombres entiers, sans devise).
             4. Liste les documents trouvés (ex: ["carte d'identité", "bulletin de paie"]).
             5. Liste les documents manquants classiques pour une location.
-            
+
             Tu dois OBLIGATOIREMENT répondre avec cet objet JSON strict :
             {{
                 "hors_sujet": false,
@@ -88,58 +103,69 @@ class AnalyzeDossierView(APIView):
             """
 
             try:
-                # Appel à l'API Groq (modèle Llama 3)
                 completion = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    response_format={ "type": "json_object" },
+                    model=GROQ_MODEL,
+                    response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": "Tu es un assistant qui renvoie uniquement du JSON valide."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.0
                 )
-                
-                llm_response = completion.choices[0].message.content
-                resultat_ia = json.loads(llm_response)
-                
-            except json.JSONDecodeError:
+                resultat_ia = AnalyseLLM.model_validate_json(
+                    completion.choices[0].message.content
+                )
+
+            except APITimeoutError:
+                logger.warning("Timeout de l'API LLM")
                 return Response(
-                    {"error": "Échec de l'analyse IA : format de réponse invalide. Veuillez réessayer."},
+                    {"error": "L'IA n'a pas répondu à temps. Veuillez réessayer."},
+                    status=status.HTTP_504_GATEWAY_TIMEOUT
+                )
+            except RateLimitError:
+                logger.warning("Rate limit de l'API LLM")
+                return Response(
+                    {"error": "Service IA temporairement surchargé. Veuillez réessayer."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            except ValidationError:
+                logger.exception("Réponse LLM invalide")
+                return Response(
+                    {"error": "L'IA a renvoyé une réponse invalide. Veuillez réessayer."},
                     status=status.HTTP_502_BAD_GATEWAY
                 )
-            except Exception as e:
+            except Exception:
+                logger.exception("Erreur d'appel au LLM")
                 return Response(
-                    {"error": f"Erreur de communication avec l'IA : {str(e)}"},
+                    {"error": "Erreur de communication avec l'IA."},
                     status=status.HTTP_502_BAD_GATEWAY
                 )
 
-            # GESTION D'ERREUR : Document hors sujet
-            if resultat_ia.get("hors_sujet") is True:
+            # Document hors sujet
+            if resultat_ia.hors_sujet:
                 return Response(
                     {"error": "Le dossier a été refusé car les documents soumis ne sont pas des justificatifs locatifs valides."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             # ÉTAPE 3 : Règle métier
-            revenus = resultat_ia.get("revenus_mensuels") or 0
+            revenus = resultat_ia.revenus_mensuels or 0
             couvre_3x_loyer = revenus >= (3 * loyer_vise)
 
             resume = {
-                "candidat": resultat_ia.get("candidat"),
+                "candidat": resultat_ia.candidat,
                 "revenus_mensuels": revenus,
                 "loyer_vise": loyer_vise,
                 "couvre_3x_loyer": couvre_3x_loyer,
-                "documents_trouves": resultat_ia.get("documents_trouves", []),
-                "documents_manquants": resultat_ia.get("documents_manquants", [])
+                "documents_trouves": resultat_ia.documents_trouves,
+                "documents_manquants": resultat_ia.documents_manquants,
             }
 
-            return Response({
-                "status": "success",
-                "resume": resume
-            }, status=status.HTTP_200_OK)
+            return Response({"status": "success", "resume": resume}, status=status.HTTP_200_OK)
 
-        except Exception as e:
+        except Exception:
+            logger.exception("Erreur interne")
             return Response(
-                {"error": f"Erreur interne du serveur : {str(e)}"},
+                {"error": "Erreur interne du serveur."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
