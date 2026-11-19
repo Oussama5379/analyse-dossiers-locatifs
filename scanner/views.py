@@ -9,6 +9,8 @@ from .analysis import construire_resume
 from .llm import analyser_piece, LLMConfiguration, LLMTimeout, LLMSurcharge, LLMReponseInvalide, LLMError
 from .documents import extraire_texte, DocumentInvalide, DocumentIllisible
 from .ocr import OcrIndisponible, OcrTimeout
+MAX_FICHIERS = 6
+MAX_TAILLE_FICHIER = 10 * 1024 * 1024  # 10 Mo
 
 def _erreur(message, code):
     return Response({"error": message}, status=code)
@@ -21,17 +23,27 @@ class AnalyzeDossierView(APIView):
         documents = request.FILES.getlist("documents")
         try:
             loyer = float(request.data.get("loyer", ""))
-        except ValueError:
+        except (ValueError, TypeError):
             return _erreur("Le loyer doit être un nombre valide.", status.HTTP_400_BAD_REQUEST)
 
         if not math.isfinite(loyer) or loyer <= 0:
             return _erreur("Le loyer doit être un nombre positif.", status.HTTP_400_BAD_REQUEST)
         if not documents:
-            return _erreur("Au moins un document (PDF) est requis.", status.HTTP_400_BAD_REQUEST)
+            return _erreur("Au moins un document (PDF, PNG ou JPEG) est requis.", status.HTTP_400_BAD_REQUEST)
+        if len(documents) > MAX_FICHIERS:
+            return _erreur(
+                f"Maximum {MAX_FICHIERS} documents autorisés par dossier.",
+                status.HTTP_400_BAD_REQUEST,
+            )
 
         pieces = []
         try:
             for doc in documents:
+                if doc.size is not None and doc.size > MAX_TAILLE_FICHIER:
+                    return _erreur(
+                        f"Le fichier '{doc.name}' dépasse la taille maximale autorisée (10 Mo).",
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    )
                 texte = extraire_texte(doc.name, doc.read())
                 pieces.append((doc.name, analyser_piece(texte)))
         except DocumentInvalide as e:
