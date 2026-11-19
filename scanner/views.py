@@ -7,8 +7,8 @@ from rest_framework.views import APIView
 
 from .analysis import construire_resume
 from .llm import analyser_piece, LLMTimeout, LLMSurcharge, LLMReponseInvalide, LLMError
-from .pdf import extraire_texte, PdfInvalide, PdfIllisible
-
+from .documents import extraire_texte, DocumentInvalide, DocumentIllisible
+from .ocr import OcrIndisponible, OcrTimeout
 
 def _erreur(message, code):
     return Response({"error": message}, status=code)
@@ -34,10 +34,14 @@ class AnalyzeDossierView(APIView):
             for doc in documents:
                 texte = extraire_texte(doc.name, doc.read())
                 pieces.append((doc.name, analyser_piece(texte)))
-        except PdfInvalide as e:
-            return _erreur(f"Le fichier '{e}' n'est pas un PDF valide.", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
-        except PdfIllisible as e:
-            return _erreur(f"Le document '{e}' est illisible (scan sans OCR).", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except DocumentInvalide as e:
+            return _erreur(f"Le fichier '{e}' n'est pas un PDF ou une image (PNG, JPEG) valide.", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+        except DocumentIllisible as e:
+            return _erreur(f"Le document '{e}' est illisible, même après OCR.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except OcrTimeout:
+            return _erreur("La reconnaissance du texte a pris trop de temps.", status.HTTP_504_GATEWAY_TIMEOUT)
+        except OcrIndisponible:
+            return _erreur("Service de reconnaissance de texte indisponible.", status.HTTP_503_SERVICE_UNAVAILABLE)
         except LLMTimeout:
             return _erreur("L'IA n'a pas répondu à temps. Veuillez réessayer.", status.HTTP_504_GATEWAY_TIMEOUT)
         except LLMSurcharge:
