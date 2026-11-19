@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analysis import construire_resume
-from .llm import analyser_piece, LLMTimeout, LLMSurcharge, LLMReponseInvalide, LLMError
+from .llm import analyser_piece, LLMConfiguration, LLMTimeout, LLMSurcharge, LLMReponseInvalide, LLMError
 from .documents import extraire_texte, DocumentInvalide, DocumentIllisible
 from .ocr import OcrIndisponible, OcrTimeout
 
@@ -48,6 +48,8 @@ class AnalyzeDossierView(APIView):
             return _erreur("Service IA temporairement surchargé. Veuillez réessayer.", status.HTTP_503_SERVICE_UNAVAILABLE)
         except LLMReponseInvalide:
             return _erreur("L'IA a renvoyé une réponse invalide. Veuillez réessayer.", status.HTTP_502_BAD_GATEWAY)
+        except LLMConfiguration:
+            return _erreur("Service d'analyse IA indisponible.", status.HTTP_503_SERVICE_UNAVAILABLE)
         except LLMError:
             return _erreur("Erreur de communication avec l'IA.", status.HTTP_502_BAD_GATEWAY)
 

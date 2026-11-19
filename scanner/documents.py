@@ -1,6 +1,6 @@
 import io
 
-import fitz
+import pymupdf
 from PIL import Image
 
 from .ocr import ocr_image, OcrIndisponible, OcrTimeout
@@ -33,14 +33,14 @@ def _detecter_format(contenu: bytes) -> str | None:
 def _ocr_page(page) -> str:
     rect = page.rect
     zoom = min(OCR_DPI / 72, MAX_COTE_PX / max(rect.width, rect.height))
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     return ocr_image(img)
 
 
 def _texte_pdf(nom: str, contenu: bytes) -> str:
     try:
-        pdf = fitz.open(stream=contenu, filetype="pdf")
+        pdf = pymupdf.open(stream=contenu, filetype="pdf")
     except Exception as e:
         raise DocumentInvalide(nom) from e
 
