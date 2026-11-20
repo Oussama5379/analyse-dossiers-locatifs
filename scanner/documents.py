@@ -45,6 +45,8 @@ def _texte_pdf(nom: str, contenu: bytes) -> str:
         raise DocumentInvalide(nom) from e
 
     try:
+        if pdf.needs_pass:
+            raise DocumentIllisible(nom)
         morceaux, pages_ocr = [], 0
         for page in pdf:
             texte = page.get_text()
@@ -57,13 +59,12 @@ def _texte_pdf(nom: str, contenu: bytes) -> str:
             if sum(len(m) for m in morceaux) >= MAX_CHARS:
                 break
         return "\n".join(morceaux)
-    except (OcrIndisponible, OcrTimeout):
+    except (OcrIndisponible, OcrTimeout, DocumentIllisible):
         raise
-    except Exception as e:  # PDF corrompu ou protégé par mot de passe
+    except Exception as e:  # PDF corrompu
         raise DocumentInvalide(nom) from e
     finally:
         pdf.close()
-
 
 def _texte_image(nom: str, contenu: bytes) -> str:
     try:

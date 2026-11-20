@@ -58,7 +58,7 @@ class AnalyzeDossierView(APIView):
         except DocumentInvalide as e:
             return _erreur(f"Le fichier '{e}' n'est pas un PDF ou une image (PNG, JPEG) valide.", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
         except DocumentIllisible as e:
-            return _erreur(f"Le document '{e}' est illisible, même après OCR.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return _erreur(f"Le document '{e}' est illisible (aucun texte exploitable, même après OCR, ou PDF protégé par mot de passe).", status.HTTP_422_UNPROCESSABLE_ENTITY)
         except OcrTimeout:
             return _erreur("La reconnaissance du texte a pris trop de temps.", status.HTTP_504_GATEWAY_TIMEOUT)
         except OcrIndisponible:

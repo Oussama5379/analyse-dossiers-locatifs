@@ -250,7 +250,7 @@ class TestIntegrationEtErreursAPI(SimpleTestCase):
             self.url, {"loyer": "1000", "documents": [pdf]}, format="multipart"
         )
         self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("non configuré", res.data["error"])
+        self.assertIn("indisponible", res.data["error"])
 
     @patch("scanner.llm.get_client")
     def test_llm_surcharge_rate_limit_503(self, mock_get_client):
