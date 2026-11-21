@@ -43,7 +43,7 @@ class AnalyzeDossierView(APIView):
         for doc in documents:
             if doc.size is not None and doc.size > MAX_TAILLE_FICHIER:
                 return _erreur(
-                    f"Le fichier '{doc.name}' dépasse 5 Mo.",
+                    f"Le fichier '{doc.name}' dépasse {MAX_TAILLE_FICHIER // (1024 * 1024)} Mo.",
                     status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
 
