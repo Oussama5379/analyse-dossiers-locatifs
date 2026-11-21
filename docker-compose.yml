@@ -1,0 +1,12 @@
+services:
+  api:
+    build: .
+    container_name: analyse-dossiers-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=True
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      - TESSERACT_CMD=
