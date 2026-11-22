@@ -49,7 +49,8 @@ python manage.py runserver
 
 ## Essayer l'API
 
-Le dossier `samples/` contient des documents **fictifs** (PDF avec texte, scan en PNG, photo en JPEG, PDF mixte, et des cas d'erreur).
+Le dossier `samples/` contient des documents **fictifs** (PDF avec texte, scan en PNG, photo en JPEG, PDF mixte, et des cas d'erreur).  
+Guide de test pas à pas avec les documents fictifs : voir [TESTING.md](TESTING.md)
 
 ```bash
 curl -X POST http://localhost:8000/api/analyze/ \
