@@ -1,6 +1,27 @@
+import re
+import unicodedata
+
 from .schemas import PieceExtraite
 
 TYPES_REQUIS = ["piece_identite", "bulletin_salaire", "avis_imposition"]
+
+
+def _mots_du_nom(nom: str) -> frozenset[str]:
+    """Mots d'un nom, sans accents ni casse ni ponctuation, indépendamment de l'ordre.
+    'LAMBERT Marie' == 'Marie Lambert' == 'Éric-Jean' -> {'eric', 'jean'}."""
+    ascii_ = unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode()
+    return frozenset(re.findall(r"[a-z0-9]+", ascii_.lower()))
+
+
+def _noms_compatibles(a: frozenset[str], b: frozenset[str]) -> bool:
+    """Même personne si tous les mots de l'un figurent dans l'autre
+    (une carte d'identité liste souvent plusieurs prénoms, un bulletin un seul)."""
+    return a <= b or b <= a
+
+
+def _noms_incoherents(noms: list[str]) -> bool:
+    mots = [m for m in (_mots_du_nom(n) for n in noms) if m]
+    return any(not _noms_compatibles(a, b) for i, a in enumerate(mots) for b in mots[i + 1:])
 
 
 def construire_resume(pieces: list[tuple[str, PieceExtraite]], loyer: float) -> dict:
@@ -22,8 +43,7 @@ def construire_resume(pieces: list[tuple[str, PieceExtraite]], loyer: float) -> 
     avertissements = []
     if revenu is None:
         avertissements.append("Aucun revenu n'a pu être extrait : couverture du loyer indéterminée.")
-    noms = {p.nom.strip().lower() for _, p in reconnues if p.nom}
-    if len(noms) > 1:
+    if _noms_incoherents([p.nom for _, p in reconnues if p.nom]):
         avertissements.append("Les noms diffèrent d'un document à l'autre.")
     if ignorees:
         avertissements.append("Certains documents ont été ignorés (type non reconnu).")

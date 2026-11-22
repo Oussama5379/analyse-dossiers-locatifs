@@ -54,6 +54,36 @@ class TestAnalyseLogiqueMetier(SimpleTestCase):
         
         self.assertIn("Les noms diffèrent d'un document à l'autre.", resultat["avertissements"])
 
+    def _avertissement_noms(self, nom_identite, nom_bulletin, nom_avis):
+        pieces = [
+            ("cni.pdf", PieceExtraite(type="piece_identite", nom=nom_identite)),
+            ("bulletin.pdf", PieceExtraite(type="bulletin_salaire", nom=nom_bulletin, revenu_mensuel_net=3000)),
+            ("impots.pdf", PieceExtraite(type="avis_imposition", nom=nom_avis)),
+        ]
+        resultat = construire_resume(pieces, loyer=900.0)
+        return "Les noms diffèrent d'un document à l'autre." in resultat["avertissements"]
+
+    def test_meme_personne_ecrite_differemment_sans_avertissement(self):
+        """Un LLM écrit parfois « LAMBERT Marie » et parfois « Marie Lambert » : même personne."""
+        cas = [
+            ("LAMBERT Marie", "Marie LAMBERT", "Marie Lambert"),      # ordre nom/prénom et casse
+            ("Éric Dupont", "Eric DUPONT", "dupont eric"),            # accents
+            ("Marie-Claire Martin", "Marie Claire MARTIN", "Martin Marie-Claire"),  # trait d'union
+            ("Jean Paul Dupont", "Jean Dupont", "Jean Dupont"),       # prénoms multiples sur la carte d'identité
+        ]
+        for noms in cas:
+            with self.subTest(noms=noms):
+                self.assertFalse(self._avertissement_noms(*noms))
+
+    def test_personnes_differentes_avec_avertissement(self):
+        cas = [
+            ("Jean Dupont", "Paul Martin", "Jean Dupont"),            # totalement différents
+            ("Jean Dupont", "Jean Martin", "Jean Dupont"),            # même prénom, nom différent
+        ]
+        for noms in cas:
+            with self.subTest(noms=noms):
+                self.assertTrue(self._avertissement_noms(*noms))
+
     def test_documents_incomplets_et_ignores(self):
         """Test des listes de documents manquants et ignorés."""
         pieces = [
